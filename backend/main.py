@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+import logging
+from fastapi import FastAPI, HTTPException
 from backend.models import TripData, AnalysisResult
 from backend.obd_simulator import generate_trip
 from backend.ai import analyze_driving
@@ -11,9 +12,12 @@ from backend.database import trips_collection
 app = FastAPI(title="EcoDriveAI API",
     description="API d’analyse intelligente de conduite à partir de données OBD-II simulées",
     version="1.0.0")
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("backend")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -40,8 +44,20 @@ def simulate_trip():
 
 @app.post("/full-report", response_model=FullReport, tags=["Rapport IA"])
 def full_report(trip: TripData):
+    logger.info("Received /full-report request")
+    logger.debug("Trip payload: %s", trip.dict())
+
     analysis = analyze_driving(trip)
-    report = generate_report(trip, analysis)
+    logger.info("Analysis computed: %s", analysis.dict())
+    try:
+        report = generate_report(trip, analysis)
+        logger.info("Report generated, %d chars", len(report))
+    except HTTPException as e:
+        logger.exception("Error generating report: %s", e.detail)
+        raise
+    except Exception as e:
+        logger.exception("Unexpected error generating report")
+        raise HTTPException(status_code=500, detail=str(e))
 
     document = {
         "date": datetime.utcnow(),
@@ -55,7 +71,10 @@ def full_report(trip: TripData):
         "generated_report": report,
     }
 
-    trips_collection.insert_one(document)
+    try:
+        trips_collection.insert_one(document)
+    except Exception as e:
+        logger.exception("Failed to insert document into MongoDB: %s", e)
 
     return FullReport(
         style=analysis.style,

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import axios from "axios";
 import "./App.css";
 import TripChart from "./TripChart";
@@ -6,6 +6,8 @@ import TripChart from "./TripChart";
 export default function App() {
   const [trip, setTrip] = useState(null);
   const [analysis, setAnalysis] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const resultRef = useRef(null);
 
   const simulateTrip = async () => {
     const res = await axios.get("http://127.0.0.1:8000/simulate");
@@ -15,17 +17,22 @@ export default function App() {
 
  const analyzeTrip = async () => {
   try {
-    console.log("Trip envoyé :", trip);
+    setIsLoading(true);
 
     const res = await axios.post(
       "http://127.0.0.1:8000/full-report",
       trip
     );
 
-    console.log("Réponse analyse :", res.data);
     setAnalysis(res.data);
+    if (resultRef.current) {
+      resultRef.current.scrollIntoView({ behavior: "smooth" });
+    }
   } catch (err) {
-    console.error("Erreur analyse :", err);
+    const msg = (err.response && (err.response.data.detail || JSON.stringify(err.response.data))) || err.message;
+    setAnalysis(null);
+  } finally {
+    setIsLoading(false);
   }
 };
 
@@ -43,8 +50,8 @@ export default function App() {
         </button>
 
         {trip && (
-          <button className="button success" onClick={analyzeTrip}>
-            Analyser la conduite
+          <button className="button success" onClick={analyzeTrip} disabled={isLoading}>
+            {isLoading ? "Analyse en cours..." : "Analyser la conduite"}
           </button>
         )}
       </div>
@@ -61,7 +68,7 @@ export default function App() {
       )}
 
       {analysis && (
-        <div className="card">
+        <div className="card" ref={resultRef}>
           <h2>Résultat IA</h2>
           <p><b>Style :</b> {analysis.style}</p>
           <p><b>Eco-score :</b> {analysis.eco_score}</p>
